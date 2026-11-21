@@ -4,8 +4,6 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
-    <uses-permission android:name="android.permission.CAMERA" />
-    <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <application
         android:allowBackup="true"
@@ -33,7 +31,7 @@
                 <data
                     android:scheme="https"
                     android:host="script.google.com"
-                    android:pathPrefix="/macros/s/AKfycbxxCGUfnfXaTyMa_0joQfcVn307azV3JfD_aCMmDHQMOvMO_tjCuPLsA8oDWTIyxXnN/exec" />
+                    android:pathPrefix="/macros/s/AKfycbxWuafFw3IW-BVfdSarB1eA_hMkuW02KrH4iSblIVTM1nsixzh_gOMSwfLKtgrduWQ_/exec" />
             </intent-filter>
         </activity>
 

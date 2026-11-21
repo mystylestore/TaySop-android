@@ -1,7 +1,7 @@
 # TayShop — Proyecto APK Android WebView
 
 Proyecto Android preconfigurado para cargar la aplicación web:
-**https://script.google.com/macros/s/AKfycbxxCGUfnfXaTyMa_0joQfcVn307azV3JfD_aCMmDHQMOvMO_tjCuPLsA8oDWTIyxXnN/exec**
+**https://script.google.com/macros/s/AKfycbxWuafFw3IW-BVfdSarB1eA_hMkuW02KrH4iSblIVTM1nsixzh_gOMSwfLKtgrduWQ_/exec**
 
 - **ID de paquete:** `com.tayshop.webapp`
 - **Versión:** `1.0.0` (código `1`)

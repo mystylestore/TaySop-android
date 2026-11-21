@@ -33,12 +33,16 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 
 class MainActivity : AppCompatActivity() {
 
     companion object {
-        private const val START_URL = "https://script.google.com/macros/s/AKfycbxxCGUfnfXaTyMa_0joQfcVn307azV3JfD_aCMmDHQMOvMO_tjCuPLsA8oDWTIyxXnN/exec"
+        private const val START_URL = "https://script.google.com/macros/s/AKfycbxWuafFw3IW-BVfdSarB1eA_hMkuW02KrH4iSblIVTM1nsixzh_gOMSwfLKtgrduWQ_/exec"
     }
 
     private lateinit var webView: WebView
@@ -65,8 +69,45 @@ class MainActivity : AppCompatActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_main)
+
+        val rootLayout: View = findViewById(R.id.rootLayout)
+        val statusBarScrim: View = findViewById(R.id.statusBarScrim)
+        val navBarScrim: View = findViewById(R.id.navBarScrim)
+
+        val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+        insetsController.isAppearanceLightStatusBars = false
+        insetsController.isAppearanceLightNavigationBars = true
+        
+
+        ViewCompat.setOnApplyWindowInsetsListener(rootLayout) { view, windowInsets ->
+            val sysInsets = windowInsets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            )
+            val cutoutInsets = windowInsets.getInsets(WindowInsetsCompat.Type.displayCutout())
+            val imeInsets = windowInsets.getInsets(WindowInsetsCompat.Type.ime())
+
+            val topHeight = sysInsets.top
+            val bottomHeight = maxOf(sysInsets.bottom, imeInsets.bottom)
+
+            if (statusBarScrim.layoutParams.height != topHeight) {
+                statusBarScrim.layoutParams = statusBarScrim.layoutParams.apply {
+                    height = topHeight
+                }
+                statusBarScrim.requestLayout()
+            }
+
+            if (navBarScrim.layoutParams.height != bottomHeight) {
+                navBarScrim.layoutParams = navBarScrim.layoutParams.apply {
+                    height = bottomHeight
+                }
+                navBarScrim.requestLayout()
+            }
+
+            view.setPadding(sysInsets.left, 0, sysInsets.right, 0)
+            WindowInsetsCompat.CONSUMED
+        }
 
         webView = findViewById(R.id.webView)
         swipeRefresh = findViewById(R.id.swipeRefresh)
@@ -118,9 +159,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun requestOptionalPermissions() {
         val needed = mutableListOf<String>()
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-            needed.add(Manifest.permission.CAMERA)
-        }
+        // Permiso de cámara desactivado en configuración
         if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED
         ) {
@@ -148,6 +187,7 @@ class MainActivity : AppCompatActivity() {
             loadsImagesAutomatically = true
             useWideViewPort = true
             loadWithOverviewMode = true
+            textZoom = 100
             cacheMode = WebSettings.LOAD_DEFAULT
             mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
             // User-Agent Chrome móvil estándar para compatibilidad total con Google Apps Script y OAuth
@@ -199,6 +239,7 @@ class MainActivity : AppCompatActivity() {
                 offlineLayout.visibility = View.GONE
                 webView.visibility = View.VISIBLE
                 progressBar.visibility = View.VISIBLE
+                hideAppsScriptBanner(view)
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
@@ -206,6 +247,7 @@ class MainActivity : AppCompatActivity() {
                 progressBar.visibility = View.GONE
                 swipeRefresh.isRefreshing = false
                 CookieManager.getInstance().flush()
+                hideAppsScriptBanner(view)
             }
 
             override fun onReceivedError(
@@ -225,6 +267,9 @@ class MainActivity : AppCompatActivity() {
                 progressBar.progress = newProgress
                 if (newProgress >= 100) {
                     progressBar.visibility = View.GONE
+                }
+                if (newProgress >= 25) {
+                    hideAppsScriptBanner(view)
                 }
             }
 
@@ -297,6 +342,11 @@ class MainActivity : AppCompatActivity() {
         swipeRefresh.isRefreshing = false
         webView.visibility = View.GONE
         offlineLayout.visibility = View.VISIBLE
+    }
+
+    private fun hideAppsScriptBanner(view: WebView?) {
+        val js = "(function(){var id='hide-gas-banner';if(!document.getElementById(id)){var s=document.createElement('style');s.id=id;s.textContent='#warning,.warning-bar,#warning-bar-table>tbody>tr:first-child{display:none!important;height:0!important;visibility:hidden!important;}html,body,#warning-bar-table,#sandboxFrame{height:100%!important;margin:0!important;padding:0!important;}';(document.head||document.documentElement).appendChild(s);}var w=document.getElementById('warning');if(w){var tr=w.closest('tr');if(tr)tr.style.display='none';w.style.display='none';}})();"
+        view?.evaluateJavascript(js, null)
     }
 
     private fun hasNetworkConnection(): Boolean {
