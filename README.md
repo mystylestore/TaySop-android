@@ -4,7 +4,7 @@ Proyecto Android preconfigurado para cargar la aplicación web:
 **https://script.google.com/macros/s/AKfycbxWuafFw3IW-BVfdSarB1eA_hMkuW02KrH4iSblIVTM1nsixzh_gOMSwfLKtgrduWQ_/exec**
 
 - **ID de paquete:** `com.tayshop.webapp`
-- **Versión:** `1.0.0` (código `1`)
+- **Versión:** `1.2.1` (código `1`)
 - **SDK mínimo:** Android 7.0 (API 24) · **SDK destino:** Android 15 (API 35)
 
 ---

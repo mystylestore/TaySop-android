@@ -159,7 +159,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun requestOptionalPermissions() {
         val needed = mutableListOf<String>()
-        // Permiso de cámara desactivado en configuración
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            needed.add(Manifest.permission.CAMERA)
+        }
         if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED
         ) {
@@ -322,7 +324,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun configureSwipeRefresh() {
-        swipeRefresh.isEnabled = true
+        swipeRefresh.isEnabled = false
         swipeRefresh.setColorSchemeColors(ContextCompat.getColor(this, R.color.brand_primary))
         swipeRefresh.setOnChildScrollUpCallback { _, _ ->
             webView.canScrollVertically(-1)
