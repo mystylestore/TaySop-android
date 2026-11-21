@@ -13,9 +13,11 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.provider.MediaStore
 import android.view.View
 import android.view.WindowManager
 import android.webkit.CookieManager
+import android.webkit.PermissionRequest
 import android.webkit.URLUtil
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -33,16 +35,19 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+import java.io.File
 
 class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val START_URL = "https://script.google.com/macros/s/AKfycbxWuafFw3IW-BVfdSarB1eA_hMkuW02KrH4iSblIVTM1nsixzh_gOMSwfLKtgrduWQ_/exec"
+        private const val SESSION_TIMEOUT_MS = 1800000L
     }
 
     private lateinit var webView: WebView
@@ -50,20 +55,48 @@ class MainActivity : AppCompatActivity() {
     private lateinit var progressBar: ProgressBar
     private lateinit var offlineLayout: LinearLayout
     private var fileUploadCallback: ValueCallback<Array<Uri>>? = null
+    private var cameraPhotoUri: Uri? = null
+    private var pendingCaptureAfterPermission = false
+    private var hasInitializedWebView = false
+    private var lastTouchRecordedAt = 0L
+
+    private val sessionPrefs by lazy {
+        getSharedPreferences("app_session_prefs", Context.MODE_PRIVATE)
+    }
 
     private val fileChooserLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         val callback = fileUploadCallback ?: return@registerForActivityResult
-        val uris = WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data)
+        var uris: Array<Uri>? = null
+        if (result.resultCode == RESULT_OK) {
+            val parsed = WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data)
+            if (parsed != null && parsed.isNotEmpty()) {
+                uris = parsed
+            } else if (cameraPhotoUri != null) {
+                uris = arrayOf(cameraPhotoUri!!)
+            }
+        }
         callback.onReceiveValue(uris)
         fileUploadCallback = null
+        cameraPhotoUri = null
     }
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { _ ->
-        // Permisos procesados para funciones de archivos o cámara
+    ) { results ->
+        if (pendingCaptureAfterPermission) {
+            pendingCaptureAfterPermission = false
+            val granted = results[Manifest.permission.CAMERA] == true ||
+                ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+            if (granted) {
+                launchCameraCapture()
+            } else {
+                fileUploadCallback?.onReceiveValue(null)
+                fileUploadCallback = null
+                Toast.makeText(this, "Activa el permiso de cámara para tomar fotos", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -119,10 +152,6 @@ class MainActivity : AppCompatActivity() {
         configureWebView()
         configureSwipeRefresh()
 
-        // Limpiar almacenamiento local al iniciar para mostrar siempre el login inicial
-        WebStorage.getInstance().deleteAllData()
-        webView.clearCache(true)
-
         retryButton.setOnClickListener {
             if (hasNetworkConnection()) {
                 offlineLayout.visibility = View.GONE
@@ -150,10 +179,76 @@ class MainActivity : AppCompatActivity() {
             START_URL
         }
 
-        if (hasNetworkConnection()) {
-            webView.loadUrl(urlToLoad)
+        if (isSessionExpired()) {
+            WebStorage.getInstance().deleteAllData()
+            webView.clearCache(true)
+            markActiveNow(force = true)
+            if (hasNetworkConnection()) {
+                webView.loadUrl(urlToLoad)
+            } else {
+                showOfflineState()
+            }
         } else {
-            showOfflineState()
+            markActiveNow(force = true)
+            if (savedInstanceState != null && webView.restoreState(savedInstanceState) != null) {
+                // Estado y pantalla restaurados exactamente donde quedó el usuario
+            } else if (hasNetworkConnection()) {
+                webView.loadUrl(urlToLoad)
+            } else {
+                showOfflineState()
+            }
+        }
+        hasInitializedWebView = true
+    }
+
+    override fun onStart() {
+        super.onStart()
+        if (!hasInitializedWebView) return
+        if (isSessionExpired()) {
+            WebStorage.getInstance().deleteAllData()
+            webView.evaluateJavascript(
+                "try{localStorage.removeItem('ts_token');localStorage.removeItem('ts_user');}catch(e){}",
+                null
+            )
+            markActiveNow(force = true)
+            if (hasNetworkConnection()) {
+                webView.loadUrl(START_URL)
+            } else {
+                showOfflineState()
+            }
+        } else {
+            markActiveNow(force = true)
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        markActiveNow(force = true)
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        webView.saveState(outState)
+    }
+
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        markActiveNow(force = false)
+    }
+
+    private fun isSessionExpired(): Boolean {
+        if (SESSION_TIMEOUT_MS == 0L) return true
+        if (SESSION_TIMEOUT_MS < 0L) return false
+        val lastActive = sessionPrefs.getLong("last_active_at", 0L)
+        if (lastActive == 0L) return true
+        return (System.currentTimeMillis() - lastActive) >= SESSION_TIMEOUT_MS
+    }
+
+    private fun markActiveNow(force: Boolean) {
+        val now = System.currentTimeMillis()
+        if (force || now - lastTouchRecordedAt >= 10_000L) {
+            lastTouchRecordedAt = now
+            sessionPrefs.edit().putLong("last_active_at", now).apply()
         }
     }
 
@@ -275,6 +370,13 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
+            override fun onPermissionRequest(request: PermissionRequest?) {
+                request ?: return
+                runOnUiThread {
+                    request.grant(request.resources)
+                }
+            }
+
             override fun onShowFileChooser(
                 webView: WebView?,
                 filePathCallback: ValueCallback<Array<Uri>>?,
@@ -282,16 +384,29 @@ class MainActivity : AppCompatActivity() {
             ): Boolean {
                 this@MainActivity.fileUploadCallback?.onReceiveValue(null)
                 this@MainActivity.fileUploadCallback = filePathCallback
-                return try {
-                    val intent = fileChooserParams?.createIntent() ?: Intent(Intent.ACTION_GET_CONTENT).apply {
-                        addCategory(Intent.CATEGORY_OPENABLE)
-                        type = "*/*"
+
+                val wantsCapture = fileChooserParams?.isCaptureEnabled == true
+                if (wantsCapture) {
+                    if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                        pendingCaptureAfterPermission = true
+                        permissionLauncher.launch(arrayOf(Manifest.permission.CAMERA))
+                        return true
                     }
-                    fileChooserLauncher.launch(intent)
+                    return launchCameraCapture()
+                }
+
+                return try {
+                    val acceptTypes = fileChooserParams?.acceptTypes?.joinToString(",") ?: ""
+                    val mimeType = if (acceptTypes.contains("image")) "image/*" else "*/*"
+                    val contentIntent = Intent(Intent.ACTION_GET_CONTENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        type = mimeType
+                    }
+                    fileChooserLauncher.launch(contentIntent)
                     true
                 } catch (_: Exception) {
                     this@MainActivity.fileUploadCallback = null
-                    Toast.makeText(this@MainActivity, "No se pudo abrir el selector de archivos", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@MainActivity, "No se pudo abrir la galería", Toast.LENGTH_SHORT).show()
                     false
                 }
             }
@@ -344,6 +459,30 @@ class MainActivity : AppCompatActivity() {
         swipeRefresh.isRefreshing = false
         webView.visibility = View.GONE
         offlineLayout.visibility = View.VISIBLE
+    }
+
+    private fun launchCameraCapture(): Boolean {
+        return try {
+            val photoFile = File.createTempFile("prenda_", ".jpg", cacheDir)
+            val photoUri = FileProvider.getUriForFile(
+                this,
+                "${packageName}.fileprovider",
+                photoFile
+            )
+            cameraPhotoUri = photoUri
+            val captureIntent = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
+                putExtra(MediaStore.EXTRA_OUTPUT, photoUri)
+                addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            fileChooserLauncher.launch(captureIntent)
+            true
+        } catch (_: Exception) {
+            cameraPhotoUri = null
+            fileUploadCallback?.onReceiveValue(null)
+            fileUploadCallback = null
+            Toast.makeText(this, "No se pudo abrir la cámara", Toast.LENGTH_SHORT).show()
+            false
+        }
     }
 
     private fun hideAppsScriptBanner(view: WebView?) {
